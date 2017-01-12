@@ -14,6 +14,9 @@
       (<!! (k/assoc-in store [:foo] :bar))
       (is (= (<!! (k/get-in store [:foo]))
              :bar))
+      (<!! (k/dissoc store :foo))
+      (is (= (<!! (k/get-in store [:foo]))
+             nil))
       (<!! (k/bassoc store :binbar (byte-array (range 10))))
       (<!! (k/bget store :binbar (fn [{:keys [input-stream]}]
                                  (is (= (map byte (slurp input-stream))

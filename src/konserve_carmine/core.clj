@@ -5,9 +5,8 @@
 
             [clojure.core.async :as async
              :refer [<!! <! >! timeout chan alt! go go-loop close! put!]]
-            [clojure.edn :as edn]
-            [clojure.string :as str]
-            [konserve.protocols :refer [PEDNAsyncKeyValueStore -exists? -get-in -update-in
+            [konserve.protocols :refer [PEDNAsyncKeyValueStore
+                                        -exists? -get-in -update-in -dissoc
                                         PBinaryAsyncKeyValueStore -bget -bassoc
                                         -serialize -deserialize]]
             [taoensso.carmine :as car :refer [wcar]])
@@ -38,10 +37,10 @@
         (let [res-ch (chan)]
           (try
             (let [bais (ByteArrayInputStream. (car/wcar conn (car/parse-raw (car/get id))))]
-              (put! res-ch
-                    (get-in
-                     (second (-deserialize serializer read-handlers bais))
-                     rkey)))
+              (when-let [res (get-in
+                              (second (-deserialize serializer read-handlers bais))
+                              rkey)]
+                (put! res-ch res)))
             res-ch
             (catch Exception e
               (put! res-ch (ex-info "Could not read key."
@@ -64,11 +63,9 @@
                 new (if (empty? rkey)
                       (up-fn old)
                       (update-in old rkey up-fn))]
-            (if new
-              (let [baos (ByteArrayOutputStream.)]
-                (-serialize serializer baos write-handlers [key-vec new])
-                (car/wcar conn (car/set id (car/raw (.toByteArray baos)))))
-              (car/wcar conn (car/del id)))
+            (let [baos (ByteArrayOutputStream.)]
+              (-serialize serializer baos write-handlers [key-vec new])
+              (car/wcar conn (car/set id (car/raw (.toByteArray baos)))))
             (put! res-ch [(get-in old rkey)
                           (get-in new rkey)]))
           res-ch
@@ -80,6 +77,20 @@
             res-ch)
           (finally
             (close! res-ch))))))
+
+  (-dissoc [this key]
+    (let [id (str (uuid key))
+          res-ch (chan)]
+      (try
+        (car/wcar conn (car/del id))
+        (catch Exception e
+          (put! res-ch (ex-info "Could not delete key."
+                                {:type :write-error
+                                 :key key
+                                 :exception e})))
+        (finally
+          (close! res-ch)))
+      res-ch))
 
   PBinaryAsyncKeyValueStore
   (-bget [this key locked-cb]

@@ -1,6 +1,6 @@
 # konserve-carmine
 
-A redis backend for [konserve](https://github.com/replikativ/konserve). 
+A redis backend for [konserve](https://github.com/replikativ/konserve) implemented with [carmine](https://github.com/ptaoussanis/carmine). 
 
 ## Usage
 
@@ -8,7 +8,7 @@ Add to your leiningen dependencies:
 [![Clojars Project](http://clojars.org/io.replikativ/konserve-carmine/latest-version.svg)](http://clojars.org/io.replikativ/konserve-carmine)
 
 The purpose of konserve is to have a unified associative key-value interface for
-edn datastructures. Use the standard interface functions of konserve.
+edn datastructures and binary blobs. Use the standard interface functions of konserve.
 
 You can provide the carmine redis connection specification map to the
 `new-carmine-store` constructor as an argument. We do not require additional
