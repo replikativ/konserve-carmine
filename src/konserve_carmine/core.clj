@@ -78,6 +78,8 @@
           (finally
             (close! res-ch))))))
 
+  (-assoc-in [this key-vec val] (-update-in this key-vec (fn [_] val)))
+
   (-dissoc [this key]
     (let [id (str (uuid key))
           res-ch (chan)]
