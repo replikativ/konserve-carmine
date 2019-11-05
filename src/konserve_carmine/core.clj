@@ -1,19 +1,15 @@
 (ns konserve-carmine.core
   (:require [konserve.serializers :as ser]
-            [clojure.java.io :as io]
             [hasch.core :refer [uuid]]
 
             [clojure.core.async :as async
-             :refer [<!! <! >! timeout chan alt! go go-loop close! put!]]
+             :refer [<!! chan go close! put!]]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get-in -update-in -dissoc
                                         PBinaryAsyncKeyValueStore -bget -bassoc
                                         -serialize -deserialize]]
-            [taoensso.carmine :as car :refer [wcar]])
-  (:import [java.io
-            ByteArrayInputStream ByteArrayOutputStream]))
-
-
+            [taoensso.carmine :as car])
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
 
 
 ;; TODO document how redis guarantees fsync in order of messages (never loses
@@ -27,7 +23,6 @@
       (put! res (= (car/wcar conn (car/exists fn)) 1))
       (close! res)
       res))
-
 
   (-get-in [this key-vec]
     (let [[fkey & rkey] key-vec
@@ -50,19 +45,20 @@
               res-ch)
             (finally
               (close! res-ch)))))))
-
-  (-update-in [this key-vec up-fn]
+  (-update-in [this key-vec up-fn] (-update-in this key-vec up-fn []))
+  (-update-in [this key-vec up-fn args]
     (let [[fkey & rkey] key-vec
-          id (str (uuid fkey))]
-      (let [res-ch (chan)]
-        (try
+          id (str (uuid fkey))
+          res-ch (chan)]
+      (try
           (let [old-bin (car/wcar conn (car/parse-raw (car/get id)))
                 old (when old-bin
                       (let [bais (ByteArrayInputStream. (car/wcar conn (car/parse-raw (car/get id))))]
                         (second (-deserialize serializer write-handlers bais))))
                 new (if (empty? rkey)
-                      (up-fn old)
-                      (update-in old rkey up-fn))]
+                      (apply up-fn old args)
+                      (apply update-in old rkey up-fn args))]
+            (println "old new" old new)
             (let [baos (ByteArrayOutputStream.)]
               (-serialize serializer baos write-handlers [key-vec new])
               (car/wcar conn (car/set id (car/raw (.toByteArray baos)))))
@@ -76,7 +72,10 @@
                                    :exception e}))
             res-ch)
           (finally
-            (close! res-ch))))))
+            (close! res-ch)))))
+
+
+  (-assoc-in [this key-vec val] (-update-in this key-vec (fn [_] val)))
 
   (-dissoc [this key]
     (let [id (str (uuid key))
