@@ -58,7 +58,6 @@
                 new (if (empty? rkey)
                       (apply up-fn old args)
                       (apply update-in old rkey up-fn args))]
-            (println "old new" old new)
             (let [baos (ByteArrayOutputStream.)]
               (-serialize serializer baos write-handlers [key-vec new])
               (car/wcar conn (car/set id (car/raw (.toByteArray baos)))))
