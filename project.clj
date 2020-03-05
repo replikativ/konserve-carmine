@@ -1,4 +1,4 @@
-(defproject io.replikativ/konserve-carmine "0.1.2"
+(defproject io.replikativ/konserve-carmine "0.1.3"
   :description "A redis backend with carmine for konserve."
   :url "http://github.com/replikativ/konserve-carmine"
   :license {:name "Eclipse Public License"
