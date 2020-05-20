@@ -9,7 +9,7 @@
 (deftest get-nil-tests
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9201/"}}))]
+          store (<!! (new-carmine-store))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
@@ -153,20 +153,18 @@
                                            sevens)))))
       (delete-store store))))  
 
-; (deftest exceptions-test
-;   (testing "Test exception handling"
-;     (let [_ (println "Generating exceptions")
-;           store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9211/"}}))
-;           corrupt (dissoc store :spec)] ; let's corrupt our store
-;       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
-;       ; (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
-;       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
-;       (is (= ExceptionInfo (type (<!! (k/dissoc corrupt :bad)))))
-;       (is (= ExceptionInfo (type (<!! (k/assoc-in corrupt [:bad :robot] 10)))))
-;       (is (= ExceptionInfo (type (<!! (k/update-in corrupt [:bad :robot] inc)))))
-;       (is (= ExceptionInfo (type (<!! (k/exists? corrupt :bad)))))
-;       ; (is (= ExceptionInfo (type (<!! (k/keys corrupt)))))
-;       ; (is (= ExceptionInfo (type (<!! (k/bget corrupt :bad (fn [_] nil))))))   
-;       ; (is (= ExceptionInfo (type (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))   
-;       (is (= ExceptionInfo (type (<!! (delete-store corrupt)))))
-;       (delete-store store))))
+(deftest exceptions-test
+  (testing "Test exception handling"
+    (let [_ (println "Generating exceptions")
+          corrupt (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:55555/"}}))] ; let's corrupt our store
+      (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
+      (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
+      (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
+      (is (= ExceptionInfo (type (<!! (k/dissoc corrupt :bad)))))
+      (is (= ExceptionInfo (type (<!! (k/assoc-in corrupt [:bad :robot] 10)))))
+      (is (= ExceptionInfo (type (<!! (k/update-in corrupt [:bad :robot] inc)))))
+      (is (= ExceptionInfo (type (<!! (k/exists? corrupt :bad)))))
+      (is (= ExceptionInfo (type (<!! (k/keys corrupt)))))
+      (is (= ExceptionInfo (type (<!! (k/bget corrupt :bad (fn [_] nil))))))   
+      (is (= ExceptionInfo (type (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))   
+      (is (= ExceptionInfo (type (<!! (delete-store corrupt))))))))

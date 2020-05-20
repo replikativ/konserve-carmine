@@ -69,7 +69,7 @@
   (-exists? 
     [this key] 
       (let [res-ch (async/chan 1)]
-        (async/go
+        (async/thread
           (try
             (async/put! res-ch (it-exists? conn (str-uuid key)))
             (catch Exception e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
@@ -78,7 +78,7 @@
   (-get 
     [this key] 
     (let [res-ch (async/chan 1)]
-      (async/go
+      (async/thread
         (try
           (let [res (get-it conn (str-uuid key))]
             (if (some? res) 
@@ -92,7 +92,7 @@
   (-get-meta 
     [this key] 
     (let [res-ch (async/chan 1)]
-      (async/go
+      (async/thread
         (try
           (let [res (get-it conn (str-uuid key))]
             (if (some? res) 
@@ -106,7 +106,7 @@
   (-update-in 
     [this key-vec meta-up-fn up-fn args]
     (let [res-ch (async/chan 1)]
-      (async/go
+      (async/thread
         (try
           (let [[fkey & rkey] key-vec
                 old-val' (get-it conn (str-uuid fkey))
@@ -122,13 +122,12 @@
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in conn" e)))))
         res-ch))
 
-  (-assoc-in [
-    this key-vec meta val] (-update-in this key-vec meta (fn [_] val) []))
+  (-assoc-in [this key-vec meta val] (-update-in this key-vec meta (fn [_] val) []))
 
   (-dissoc 
     [this key] 
     (let [res-ch (async/chan 1)]
-      (async/go
+      (async/thread
         (try
           (delete-it conn (str-uuid key))
           (async/close! res-ch)
@@ -139,7 +138,7 @@
   (-bget 
     [this key locked-cb]
     (let [res-ch (async/chan 1)]
-      (async/go
+      (async/thread
         (try
           (let [res (get-it conn (str-uuid key))]
             (if (some? res) 
@@ -154,7 +153,7 @@
   (-bassoc 
     [this key meta-up-fn input]
     (let [res-ch (async/chan 1)]
-      (async/go
+      (async/thread
         (try
           (let [old-val' (get-it conn (str-uuid key))
                 old-val (when old-val'
@@ -181,7 +180,7 @@
   (-keys 
     [_]
     (let [res-ch (async/chan)]
-      (async/go
+      (async/thread
         (try
           (let [key-stream (get-keys conn)
                 keys' (when key-stream
@@ -203,7 +202,7 @@
                     :or {serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
-   (async/go 
+   (async/thread 
       (map->CarmineStore {:conn carmine-conn
                           :read-handlers read-handlers
                           :write-handlers write-handlers
@@ -212,7 +211,7 @@
 
 (defn delete-store [store]
   (let [res-ch (async/chan 1)]
-    (async/go
+    (async/thread
       (try
         (car/wcar (:conn store) (car/flushall))
         (async/close! res-ch)
