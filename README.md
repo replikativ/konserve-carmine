@@ -2,10 +2,16 @@
 
 A redis backend for [konserve](https://github.com/replikativ/konserve) implemented with [carmine](https://github.com/ptaoussanis/carmine). 
 
+
+# Status
+
+![master](https://github.com/alekcz/konserve-carmine/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-carmine/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-carmine) 
+
 ## Usage
 
-Add to your leiningen dependencies:
-[![Clojars Project](http://clojars.org/io.replikativ/konserve-carmine/latest-version.svg)](http://clojars.org/io.replikativ/konserve-carmine)
+[![Clojars Project](https://img.shields.io/clojars/v/io.replikativ/konserve-carmine.svg)](http://clojars.org/io.replikativ/konserve-carmine)
+
+`[alekcz/konserve-carmine "0.1.4-SNAPSHOT"]`
 
 The purpose of konserve is to have a unified associative key-value interface for
 edn datastructures and binary blobs. Use the standard interface functions of konserve.
@@ -15,17 +21,23 @@ You can provide the carmine redis connection specification map to the
 settings beyond the konserve serialization protocol for the store, so you can
 still access the store through carmine directly wherever you need.
 
-~~~clojure
-  (require '[konserve-carmine.core :refer :all]
-           '[konserve.core :as k)
-  (def carmine-store (<!! (new-carmine-store)))
+```clojure
+(require '[konserve-carmine.core :refer :all]
+         '[clojure.core.async :refer [<!!] :as async]
+         '[konserve.core :as k])
+  
+  (def carmine-store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:6379/"}})))
 
-  (<!! (k/exists? carmine-store  "john"))
-  (<!! (k/get-in carmine-store ["john"]))
-  (<!! (k/assoc-in carmine-store ["john"] 42))
-  (<!! (k/update-in carmine-store ["john"] inc))
-  (<!! (k/get-in carmine-store ["john"]))
-~~~
+  (<!! (k/exists? carmine-store  "cecilia"))
+  (<!! (k/get-in carmine-store ["cecilia"]))
+  (<!! (k/assoc-in carmine-store ["cecilia"] 28))
+  (<!! (k/update-in carmine-store ["cecilia"] inc))
+  (<!! (k/get-in carmine-store ["cecilia"]))
+
+  (defrecord Test [a])
+  (<!! (k/assoc-in carmine-store ["agatha"] (Test. 35)))
+  (<!! (k/get-in carmine-store ["agatha"]))
+```
 
 
 
