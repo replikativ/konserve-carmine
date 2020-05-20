@@ -11,7 +11,7 @@ A redis backend for [konserve](https://github.com/replikativ/konserve) implement
 
 [![Clojars Project](https://img.shields.io/clojars/v/io.replikativ/konserve-carmine.svg)](http://clojars.org/io.replikativ/konserve-carmine)
 
-`[alekcz/konserve-carmine "0.1.4-SNAPSHOT"]`
+`[io.replikativ/konserve-carmine "0.1.4-SNAPSHOT"]`
 
 The purpose of konserve is to have a unified associative key-value interface for
 edn datastructures and binary blobs. Use the standard interface functions of konserve.
