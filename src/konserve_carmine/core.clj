@@ -188,12 +188,17 @@
                     :or {serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
-   (async/thread 
-      (map->CarmineStore {:conn carmine-conn
-                          :read-handlers read-handlers
-                          :write-handlers write-handlers
-                          :serializer serializer
-                          :locks (atom {})}))))
+    (let [res-ch (async/chan 1)]                      
+      (async/thread 
+        (try
+          (async/put! res-ch
+            (map->CarmineStore {:conn carmine-conn
+                                :read-handlers read-handlers
+                                :write-handlers write-handlers
+                                :serializer serializer
+                                :locks (atom {})}))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
+      res-ch)))
 
 (defn delete-store [store]
   (let [res-ch (async/chan 1)]
