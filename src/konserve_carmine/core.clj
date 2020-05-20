@@ -18,51 +18,37 @@
 (set! *warn-on-reflection* 1)
       
 (defn it-exists? 
-  "Doc string"
   [conn id]
   (= (car/wcar conn (car/exists id)) 1)) 
   
 (defn get-it 
-  "Doc string"
   [conn id]
   (car/wcar conn (car/parse-raw (car/get id))))
 
 (defn update-it 
-  "Doc string"
   [conn id data]
   (car/wcar conn (car/set id (car/raw data))))
 
 (defn delete-it 
-  "Doc string"
   [conn id]
   (car/wcar conn (car/del id))) 
 
 (defn get-keys 
-  "Doc string"
   [conn]
   (car/wcar conn (car/keys "*")))
 
 (defn str-uuid 
-  "Doc string"
   [key] 
   (str (hasch/uuid key))) 
 
 (defn prep-ex 
-  "Doc string"
   [^String message ^Exception e]
-  ; Use print the stack trace when things are going wonky
-  ;(.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
-  "Doc string"
   [bytes]
   { :input-stream  (ByteArrayInputStream. bytes) 
     :size (count bytes)})
-
-; Implementation of the konserve protocol starts here.
-; All the functions above are helper functions to make the code more readable and 
-; maintainable
 
 (defrecord CarmineStore [conn serializer read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
@@ -86,7 +72,7 @@
                     data (-deserialize serializer read-handlers bais)]
                 (async/put! res-ch (second data)))
               (async/close! res-ch)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
       res-ch))
 
   (-get-meta 
@@ -100,7 +86,7 @@
                     data (-deserialize serializer read-handlers bais)] 
                 (async/put! res-ch (first data)))
               (async/close! res-ch)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
       res-ch))
 
   (-update-in 
@@ -119,7 +105,7 @@
             (-serialize serializer baos write-handlers new-val)
             (update-it conn (str-uuid fkey) (.toByteArray baos))
             (async/put! res-ch [(second old-val) (second new-val)]))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
 
   (-assoc-in [this key-vec meta val] (-update-in this key-vec meta (fn [_] val) []))
@@ -131,7 +117,7 @@
         (try
           (delete-it conn (str-uuid key))
           (async/close! res-ch)
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))))
         res-ch))
 
   PBinaryAsyncKeyValueStore
@@ -147,7 +133,7 @@
                     data (byte-array (subvec res-vec (+ 8 meta-len)))]
                 (async/put! res-ch (locked-cb (prep-stream data))))
               (async/close! res-ch)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve binary value from conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
       res-ch))
 
   (-bassoc 
@@ -173,7 +159,7 @@
                                         (concat (.array meta-size) meta-as-bytes input)))]
             (update-it conn (str-uuid key) combined-byte-array)
             (async/put! res-ch [(second old-val) input]))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write binary value in conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write binary value in store" e)))))
         res-ch))
 
   PKeyIterable
@@ -191,7 +177,7 @@
             (doall
               (map #(async/put! res-ch %) keys)))
           (async/close! res-ch) 
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from conn" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
         res-ch)))
 
 
