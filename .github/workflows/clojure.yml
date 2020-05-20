@@ -12,5 +12,7 @@ jobs:
     - name: Run tests
       run: |
         docker-compose up -d
-        lein test
+        lein cloverage --codecov
+        bash <(curl -s https://codecov.io/bash)
         docker-compose down
+        
