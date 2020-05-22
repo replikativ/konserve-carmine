@@ -18,25 +18,37 @@
 (set! *warn-on-reflection* 1)
 (def version 1)
 
+(defn add-version [bytes]
+  (when (seq bytes) 
+    (byte-array (into [] (concat [(byte version)] (vec bytes))))))
+
+(defn strip-version [bytes]
+  (when (seq bytes) 
+    (byte-array (rest (vec bytes)))))
+
 (defn it-exists? 
   [conn id]
   (= (car/wcar conn (car/exists id)) 1)) 
   
 (defn get-it 
   [conn id]
-  (car/wcar conn (car/hmget id "meta" "data")))
+  (doall (map strip-version (car/wcar conn (car/hmget id "meta" "data")))))
 
 (defn get-it-only
   [conn id]
-  (first (car/wcar conn (car/hmget id "data"))))
+  (strip-version (first (car/wcar conn (car/hmget id "data")))))
 
 (defn get-meta 
   [conn id]
-  (first (car/wcar conn (car/hmget id "meta"))))
+  (strip-version (first (car/wcar conn (car/hmget id "meta")))))
 
 (defn update-it 
   [conn id data]
-  (time (car/wcar conn (car/hmset id "meta" (first data) "data" (second data) "version" (byte version)))))
+  (car/wcar conn 
+    (car/hmset id 
+      "meta" (add-version (first data))
+      "data" (add-version (second data))
+      "version" (byte version))))
 
 (defn delete-it 
   [conn id]
@@ -52,7 +64,6 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
-  (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 

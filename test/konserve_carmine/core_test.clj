@@ -2,7 +2,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve-carmine.core :refer [new-carmine-store delete-store]]
+            [konserve-carmine.core :refer [new-carmine-store delete-store] :as kcc]
+            [hasch.core :as hasch]
+            [taoensso.carmine :as car]
             [malli.generator :as mg])
   (:import  [clojure.lang ExceptionInfo]))
 
@@ -152,6 +154,19 @@
                                     (is (= (pmap byte (slurp input-stream))
                                            sevens)))))
       (delete-store store))))  
+
+(deftest version-tests
+  (testing "Test check for version being store with data"
+    (let [_ (println "Check if version is stored")
+          store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9211/"}}))
+          id (str (hasch/uuid :foo))]
+      (<!! (k/assoc store :foo :bar))
+      (is (= :bar (<!! (k/get store :foo))))
+      (is (= (byte kcc/version) 
+             (-> (car/wcar (:conn store) (car/hmget id "meta")) first vec first)))
+      (is (= (byte kcc/version) 
+             (-> (car/wcar (:conn store) (car/hmget id "data")) first vec first)))             
+      (delete-store store))))
 
 (deftest exceptions-test
   (testing "Test exception handling"
