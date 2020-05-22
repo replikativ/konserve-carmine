@@ -16,18 +16,27 @@
             [java.nio ByteBuffer]))
 
 (set! *warn-on-reflection* 1)
-      
+(def version 1)
+
 (defn it-exists? 
   [conn id]
   (= (car/wcar conn (car/exists id)) 1)) 
   
 (defn get-it 
   [conn id]
-  (car/wcar conn (car/parse-raw (car/get id))))
+  (car/wcar conn (car/hmget id "meta" "data")))
+
+(defn get-it-only
+  [conn id]
+  (first (car/wcar conn (car/hmget id "data"))))
+
+(defn get-meta 
+  [conn id]
+  (first (car/wcar conn (car/hmget id "meta"))))
 
 (defn update-it 
   [conn id data]
-  (car/wcar conn (car/set id (car/raw data))))
+  (time (car/wcar conn (car/hmset id "meta" (first data) "data" (second data) "version" (byte version)))))
 
 (defn delete-it 
   [conn id]
@@ -43,6 +52,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
+  (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -66,11 +76,11 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it conn (str-uuid key))]
+          (let [res (get-it-only conn (str-uuid key))]
             (if (some? res) 
               (let [bais (ByteArrayInputStream. res)
                     data (-deserialize serializer read-handlers bais)]
-                (async/put! res-ch (second data)))
+                (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
       res-ch))
@@ -80,11 +90,11 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it conn (str-uuid key))]
+          (let [res (get-meta conn (str-uuid key))]
             (if (some? res) 
               (let [bais (ByteArrayInputStream. res)
                     data (-deserialize serializer read-handlers bais)] 
-                (async/put! res-ch (first data)))
+                (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
       res-ch))
@@ -95,16 +105,19 @@
       (async/thread
         (try
           (let [[fkey & rkey] key-vec
-                old-val' (get-it conn (str-uuid fkey))
-                old-val (when old-val'
-                          (let [bais (ByteArrayInputStream. old-val')]
-                            (-deserialize serializer read-handlers bais)))
-                new-val [(meta-up-fn (first old-val)) 
+                [ometa' oval'] (get-it conn (str-uuid fkey))
+                old-val [(when ometa'
+                          (-deserialize serializer read-handlers ometa'))
+                         (when oval'
+                          (-deserialize serializer read-handlers oval'))]            
+                [nmeta nval] [(meta-up-fn (first old-val)) 
                          (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
-                ^ByteArrayOutputStream baos (ByteArrayOutputStream.)]
-            (-serialize serializer baos write-handlers new-val)
-            (update-it conn (str-uuid fkey) (.toByteArray baos))
-            (async/put! res-ch [(second old-val) (second new-val)]))
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
+                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+            (when nmeta (-serialize serializer mbaos write-handlers nmeta))
+            (when nval (-serialize serializer vbaos write-handlers nval))    
+            (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+            (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
 
@@ -126,12 +139,9 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it conn (str-uuid key))]
+          (let [res (get-it-only conn (str-uuid key))]
             (if (some? res) 
-              (let [res-vec (vec res)
-                    meta-len (-> res-vec (subvec 0 7) byte-array ByteBuffer/wrap (.getInt 0))
-                    data (byte-array (subvec res-vec (+ 8 meta-len)))]
-                (async/put! res-ch (locked-cb (prep-stream data))))
+              (async/put! res-ch (locked-cb (prep-stream res)))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
       res-ch))
@@ -141,25 +151,14 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [old-val' (get-it conn (str-uuid key))
-                old-val (when old-val'
-                          (let [old-vec (vec old-val')
-                                meta-len (-> old-vec (subvec 0 7) byte-array ByteBuffer/wrap (.getInt 0))
-                                meta (subvec old-vec 8 (+ 8 meta-len))
-                                bais (ByteArrayInputStream. (byte-array meta))]
-                            [(-deserialize serializer read-handlers bais) 
-                             (byte-array (subvec old-vec (+ 8 meta-len)))]))
-                new-meta (meta-up-fn (first old-val))
-                ^ByteArrayOutputStream baos (ByteArrayOutputStream.)
-                _ (-serialize serializer baos write-handlers new-meta)
-                meta-as-bytes (.toByteArray baos)
-                meta-size (.putInt (ByteBuffer/allocate 8) (count meta-as-bytes))
-                combined-byte-array (byte-array 
-                                      (into [] 
-                                        (concat (.array meta-size) meta-as-bytes input)))]
-            (update-it conn (str-uuid key) combined-byte-array)
-            (async/put! res-ch [(second old-val) input]))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write binary value in store" e)))))
+          (let [[old-meta' old-val] (get-it conn (str-uuid key))
+                old-meta (when old-meta' (-deserialize serializer read-handlers old-meta'))           
+                new-meta (meta-up-fn old-meta) 
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
+            (when new-meta (-serialize serializer mbaos write-handlers new-meta))
+            (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
+            (async/put! res-ch [old-val input]))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
         res-ch))
 
   PKeyIterable
@@ -171,12 +170,12 @@
           (let [key-stream (get-keys conn)
                 keys' (when key-stream
                         (for [k key-stream]
-                          (let [bais (ByteArrayInputStream. (get-it conn k))]
-                            (first (-deserialize serializer read-handlers bais)))))
+                          (let [bais (ByteArrayInputStream. (get-meta conn k))]
+                            (-deserialize serializer read-handlers bais))))
                 keys (map :key keys')]
             (doall
-              (map #(async/put! res-ch %) keys)))
-          (async/close! res-ch) 
+              (map #(async/put! res-ch %) keys))
+            (async/close! res-ch)) 
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
         res-ch)))
 
