@@ -56,18 +56,24 @@
 (deftest binary-tests
   (testing "Test writing binary date"
     (let [_ (println "Reading and writing binary data")
-          store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9205/"}}))]
+          store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9205/"}}))
+          cb (atom false)
+          cb2 (atom false)]
       (is (not (<!! (k/exists? store :binbar))))
-      (<!! (k/bget store :binbar (fn [ans] (is (nil? ans)))))
+      (<!! (k/bget store :binbar (fn [ans] (is (nil? (:input-stream ans))))))
       (<!! (k/bassoc store :binbar (byte-array (range 10))))
-      (<!! (k/bget store :binbar (fn [{:keys [input-stream]}]
-                                    (is (= (map byte (slurp input-stream))
+      (<!! (k/bget store :binbar (fn [res]
+                                    (reset! cb true)
+                                    (is (= (map byte (slurp (:input-stream res)))
                                            (range 10))))))
       (<!! (k/bassoc store :binbar (byte-array (map inc (range 10))))) 
-      (<!! (k/bget store :binbar (fn [{:keys [input-stream]}]
-                                    (is (= (map byte (slurp input-stream))
+      (<!! (k/bget store :binbar (fn [res]
+                                    (reset! cb2 true)
+                                    (is (= (map byte (slurp (:input-stream res)))
                                            (map inc (range 10)))))))                                          
       (is (<!! (k/exists? store :binbar)))
+      (is @cb)
+      (is @cb2)
       (delete-store store))))
   
 (deftest key-tests
