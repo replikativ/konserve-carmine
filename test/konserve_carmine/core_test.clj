@@ -168,9 +168,9 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kcc/version) 
+      (is (= (byte kcc/layout) 
              (-> (car/wcar (:conn store) (car/hmget id "meta")) first vec first)))
-      (is (= (byte kcc/version) 
+      (is (= (byte kcc/layout) 
              (-> (car/wcar (:conn store) (car/hmget id "data")) first vec first)))             
       (delete-store store))))
 

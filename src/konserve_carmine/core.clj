@@ -16,15 +16,24 @@
             [java.nio ByteBuffer]))
 
 (set! *warn-on-reflection* 1)
-(def version 1)
+(def layout 1)
+(def serializer 1)
+(def compressor 0)
+(def encryptor 0)
 
-(defn add-version [bytes]
-  (when (seq bytes) 
-    (byte-array (into [] (concat [(byte version)] (vec bytes))))))
+(defn add-version [data]
+  (when (seq data) 
+    (if (= String (type data))
+      (str (char layout) (char serializer) (char compressor) (char encryptor) data)
+      (byte-array (into [] (concat 
+                            [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
+                            (vec data)))))))
 
-(defn strip-version [bytes]
-  (when (seq bytes) 
-    (byte-array (rest (vec bytes)))))
+(defn strip-version [data]
+  (when (seq data) 
+    (if (= String (type data))
+      (subs data 4)
+      (byte-array (->> data vec (split-at 4) second)))))
 
 (defn it-exists? 
   [conn id]
@@ -47,8 +56,7 @@
   (car/wcar conn 
     (car/hmset id 
       "meta" (add-version (first data))
-      "data" (add-version (second data))
-      "version" (byte version))))
+      "data" (add-version (second data)))))
 
 (defn delete-it 
   [conn id]
