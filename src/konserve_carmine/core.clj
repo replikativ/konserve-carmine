@@ -21,19 +21,15 @@
 (def compressor 0)
 (def encryptor 0)
 
-(defn add-version [data]
-  (when (seq data) 
-    (if (= String (type data))
-      (str (char layout) (char serializer) (char compressor) (char encryptor) data)
-      (byte-array (into [] (concat 
-                            [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
-                            (vec data)))))))
+(defn add-version [bytes]
+  (when (seq bytes) 
+    (byte-array (into [] (concat 
+                          [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
+                          (vec bytes))))))
 
-(defn strip-version [data]
-  (when (seq data) 
-    (if (= String (type data))
-      (subs data 4)
-      (byte-array (->> data vec (split-at 4) second)))))
+(defn strip-version [bytes]
+  (when (seq bytes) 
+    (byte-array (->> bytes vec (split-at 4) second))))
 
 (defn it-exists? 
   [conn id]

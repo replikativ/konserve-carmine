@@ -161,7 +161,7 @@
                                            sevens)))))
       (delete-store store))))  
 
-(deftest version-tests
+(deftest layout-tests
   (testing "Test check for version being store with data"
     (let [_ (println "Check if version is stored")
           store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9211/"}}))
