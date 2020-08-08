@@ -21,13 +21,13 @@
 (def compressor 0)
 (def encryptor 0)
 
-(defn add-version [bytes]
+(defn add-header [bytes]
   (when (seq bytes) 
     (byte-array (into [] (concat 
                           [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
                           (vec bytes))))))
 
-(defn strip-version [bytes]
+(defn strip-header [bytes]
   (when (seq bytes) 
     (byte-array (->> bytes vec (split-at 4) second))))
 
@@ -37,22 +37,22 @@
   
 (defn get-it 
   [conn id]
-  (doall (map strip-version (car/wcar conn (car/hmget id "meta" "data")))))
+  (doall (map strip-header (car/wcar conn (car/hmget id "meta" "data")))))
 
 (defn get-it-only
   [conn id]
-  (strip-version (first (car/wcar conn (car/hmget id "data")))))
+  (strip-header (first (car/wcar conn (car/hmget id "data")))))
 
 (defn get-meta 
   [conn id]
-  (strip-version (first (car/wcar conn (car/hmget id "meta")))))
+  (strip-header (first (car/wcar conn (car/hmget id "meta")))))
 
 (defn update-it 
   [conn id data]
   (car/wcar conn 
     (car/hmset id 
-      "meta" (add-version (first data))
-      "data" (add-version (second data)))))
+      "meta" (add-header (first data))
+      "data" (add-header (second data)))))
 
 (defn delete-it 
   [conn id]
