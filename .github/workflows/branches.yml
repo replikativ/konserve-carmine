@@ -1,0 +1,22 @@
+name: branches
+
+on:
+  push:
+    branches: 
+      - '*'  
+      - '!master'  
+  pull_request:
+    branches: 
+      - '*'  
+      - '!master'  
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: |
+        docker-compose up -d
+        lein cloverage --codecov
+        docker-compose down
+

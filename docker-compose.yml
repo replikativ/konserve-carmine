@@ -1,0 +1,86 @@
+version: '3.3'
+
+services:
+  Redis0:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 6379
+    ports:
+      - "6379:6379"
+    restart: always 
+          
+  Redis1:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9201
+    ports:
+      - "9201:9201"
+    restart: always
+
+  Redis2:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9202
+    ports:
+      - "9202:9202"
+    restart: always
+
+  Redis3:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9203
+    ports:
+      - "9203:9203"
+    restart: always
+
+  Redis4:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9204
+    ports:
+      - "9204:9204"
+    restart: always
+
+  Redis5:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9205
+    ports:
+      - "9205:9205"
+    restart: always  
+
+  Redis6:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9206
+    ports:
+      - "9206:9206"
+    restart: always  
+
+  Redis7:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9207
+    ports:
+      - "9207:9207"
+    restart: always   
+
+  Redis8:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9208
+    ports:
+      - "9208:9208"
+    restart: always   
+
+  Redis9:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9209
+    ports:
+      - "9209:9209"
+    restart: always 
+
+  Redis10:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9210
+    ports:
+      - "9210:9210"
+    restart: always 
+  
+  Redis11:
+    image: sameersbn/redis:4.0.9-2
+    command: --port 9211
+    ports:
+      - "9211:9211"
+    restart: always 

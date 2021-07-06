@@ -1,124 +1,198 @@
 (ns konserve-carmine.core
-  (:require [konserve.serializers :as ser]
-            [hasch.core :refer [uuid]]
-
-            [clojure.core.async :as async
-             :refer [<!! chan go close! put!]]
+  "Address globally aggregated immutable key-value conn(s)."
+  (:require [clojure.core.async :as async]
+            [konserve.serializers :as ser]
+            [hasch.core :as hasch]
+            [taoensso.carmine :as car]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
-                                        -exists? -get-in -update-in -dissoc
-                                        PBinaryAsyncKeyValueStore -bget -bassoc
-                                        -serialize -deserialize]]
-            [taoensso.carmine :as car])
-  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
+                                        -exists? -get -get-meta
+                                        -update-in -assoc-in -dissoc
+                                        PBinaryAsyncKeyValueStore
+                                        -bassoc -bget
+                                        -serialize -deserialize
+                                        PKeyIterable
+                                        -keys]])
+  (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
+            [java.nio ByteBuffer]))
 
+(set! *warn-on-reflection* 1)
+(def layout 1)
+(def serializer 1)
+(def compressor 0)
+(def encryptor 0)
 
-;; TODO document how redis guarantees fsync in order of messages (never loses
-;; intermediary writes) on a single peer
+(defn add-header [bytes]
+  (when (seq bytes) 
+    (byte-array (into [] (concat 
+                          [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
+                          (vec bytes))))))
+
+(defn strip-header [bytes]
+  (when (seq bytes) 
+    (byte-array (->> bytes vec (split-at 4) second))))
+
+(defn it-exists? 
+  [conn id]
+  (= (car/wcar conn (car/exists id)) 1)) 
+  
+(defn get-it 
+  [conn id]
+  (doall (map strip-header (car/wcar conn (car/hmget id "meta" "data")))))
+
+(defn get-it-only
+  [conn id]
+  (strip-header (first (car/wcar conn (car/hmget id "data")))))
+
+(defn get-meta 
+  [conn id]
+  (strip-header (first (car/wcar conn (car/hmget id "meta")))))
+
+(defn update-it 
+  [conn id data]
+  (car/wcar conn 
+    (car/hmset id 
+      "meta" (add-header (first data))
+      "data" (add-header (second data)))))
+
+(defn delete-it 
+  [conn id]
+  (car/wcar conn (car/del id))) 
+
+(defn get-keys 
+  [conn]
+  (car/wcar conn (car/keys "*")))
+
+(defn str-uuid 
+  [key] 
+  (str (hasch/uuid key))) 
+
+(defn prep-ex 
+  [^String message ^Exception e]
+  (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
+
+(defn prep-stream 
+  [bytes]
+  { :input-stream  (ByteArrayInputStream. bytes) 
+    :size (count bytes)})
 
 (defrecord CarmineStore [conn serializer read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
-  (-exists? [this key]
-    (let [fn (str (uuid key))
-          res (chan)]
-      (put! res (= (car/wcar conn (car/exists fn)) 1))
-      (close! res)
-      res))
-
-  (-get-in [this key-vec]
-    (let [[fkey & rkey] key-vec
-          id (str (uuid fkey))]
-      (if-not (= (car/wcar conn (car/exists id)) 1)
-        (go nil)
-        (let [res-ch (chan)]
+  (-exists? 
+    [this key] 
+      (let [res-ch (async/chan 1)]
+        (async/thread
           (try
-            (let [bais (ByteArrayInputStream. (car/wcar conn (car/parse-raw (car/get id))))]
-              (when-let [res (get-in
-                              (second (-deserialize serializer read-handlers bais))
-                              rkey)]
-                (put! res-ch res)))
-            res-ch
-            (catch Exception e
-              (put! res-ch (ex-info "Could not read key."
-                                   {:type :read-error
-                                    :key fkey
-                                    :exception e}))
-              res-ch)
-            (finally
-              (close! res-ch)))))))
-  (-update-in [this key-vec up-fn] (-update-in this key-vec up-fn []))
-  (-update-in [this key-vec up-fn args]
-    (let [[fkey & rkey] key-vec
-          id (str (uuid fkey))
-          res-ch (chan)]
-      (try
-          (let [old-bin (car/wcar conn (car/parse-raw (car/get id)))
-                old (when old-bin
-                      (let [bais (ByteArrayInputStream. (car/wcar conn (car/parse-raw (car/get id))))]
-                        (second (-deserialize serializer write-handlers bais))))
-                new (if (empty? rkey)
-                      (apply up-fn old args)
-                      (apply update-in old rkey up-fn args))]
-            (let [baos (ByteArrayOutputStream.)]
-              (-serialize serializer baos write-handlers [key-vec new])
-              (car/wcar conn (car/set id (car/raw (.toByteArray baos)))))
-            (put! res-ch [(get-in old rkey)
-                          (get-in new rkey)]))
-          res-ch
-          (catch Exception e
-            (put! res-ch (ex-info "Could not write key."
-                                  {:type :write-error
-                                   :key fkey
-                                   :exception e}))
-            res-ch)
-          (finally
-            (close! res-ch)))))
+            (async/put! res-ch (it-exists? conn (str-uuid key)))
+            (catch Exception e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
+        res-ch))
 
-
-  (-assoc-in [this key-vec val] (-update-in this key-vec (fn [_] val)))
-
-  (-dissoc [this key]
-    (let [id (str (uuid key))
-          res-ch (chan)]
-      (try
-        (car/wcar conn (car/del id))
-        (catch Exception e
-          (put! res-ch (ex-info "Could not delete key."
-                                {:type :write-error
-                                 :key key
-                                 :exception e})))
-        (finally
-          (close! res-ch)))
+  (-get 
+    [this key] 
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (let [res (get-it-only conn (str-uuid key))]
+            (if (some? res) 
+              (let [bais (ByteArrayInputStream. res)
+                    data (-deserialize serializer read-handlers bais)]
+                (async/put! res-ch data))
+              (async/close! res-ch)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
       res-ch))
 
-  PBinaryAsyncKeyValueStore
-  (-bget [this key locked-cb]
-    (let [id (uuid key)]
-      (if-not (= (car/wcar conn (car/exists id)) 1)
-        (go nil)
-        (go
-          (try
-            (let [bin (car/wcar conn (car/parse-raw (car/get id)))
-                  bais (ByteArrayInputStream. bin)]
-              (locked-cb {:input-stream bais
-                          :size (count bin)}))
-            (catch Exception e
-              (ex-info "Could not read key."
-                       {:type :read-error
-                        :key key
-                        :exception e})))))))
-
-  (-bassoc [this key input]
-    (let [id (uuid key)]
-      (go
+  (-get-meta 
+    [this key] 
+    (let [res-ch (async/chan 1)]
+      (async/thread
         (try
-          (car/wcar conn (car/set id (car/raw input)))
-          nil
-          (catch Exception e
-            (ex-info "Could not write key."
-                     {:type :write-error
-                      :key key
-                      :exception e})))))))
+          (let [res (get-meta conn (str-uuid key))]
+            (if (some? res) 
+              (let [bais (ByteArrayInputStream. res)
+                    data (-deserialize serializer read-handlers bais)] 
+                (async/put! res-ch data))
+              (async/close! res-ch)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
+      res-ch))
 
+  (-update-in 
+    [this key-vec meta-up-fn up-fn args]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (let [[fkey & rkey] key-vec
+                [ometa' oval'] (get-it conn (str-uuid fkey))
+                old-val [(when ometa'
+                          (-deserialize serializer read-handlers ometa'))
+                         (when oval'
+                          (-deserialize serializer read-handlers oval'))]            
+                [nmeta nval] [(meta-up-fn (first old-val)) 
+                         (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
+                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+            (when nmeta (-serialize serializer mbaos write-handlers nmeta))
+            (when nval (-serialize serializer vbaos write-handlers nval))    
+            (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+            (async/put! res-ch [(second old-val) nval]))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
+        res-ch))
+
+  (-assoc-in [this key-vec meta val] (-update-in this key-vec meta (fn [_] val) []))
+
+  (-dissoc 
+    [this key] 
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (delete-it conn (str-uuid key))
+          (async/close! res-ch)
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))))
+        res-ch))
+
+  PBinaryAsyncKeyValueStore
+  (-bget 
+    [this key locked-cb]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (let [res (get-it-only conn (str-uuid key))]
+            (if (some? res) 
+              (async/put! res-ch (locked-cb (prep-stream res)))
+              (async/close! res-ch)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
+      res-ch))
+
+  (-bassoc 
+    [this key meta-up-fn input]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (let [[old-meta' old-val] (get-it conn (str-uuid key))
+                old-meta (when old-meta' (-deserialize serializer read-handlers old-meta'))           
+                new-meta (meta-up-fn old-meta) 
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
+            (when new-meta (-serialize serializer mbaos write-handlers new-meta))
+            (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
+            (async/put! res-ch [old-val input]))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
+        res-ch))
+
+  PKeyIterable
+  (-keys 
+    [_]
+    (let [res-ch (async/chan)]
+      (async/thread
+        (try
+          (let [key-stream (get-keys conn)
+                keys' (when key-stream
+                        (for [k key-stream]
+                          (let [bais (ByteArrayInputStream. (get-meta conn k))]
+                            (-deserialize serializer read-handlers bais))))
+                keys (map :key keys')]
+            (doall
+              (map #(async/put! res-ch %) keys))
+            (async/close! res-ch)) 
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
+        res-ch)))
 
 
 (defn new-carmine-store
@@ -128,77 +202,23 @@
                     :or {serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
-   (go (map->CarmineStore {:conn carmine-conn
-                           :read-handlers read-handlers
-                           :write-handlers write-handlers
-                           :serializer serializer
-                           :locks (atom {})}))))
+    (let [res-ch (async/chan 1)]                      
+      (async/thread 
+        (try
+          (async/put! res-ch
+            (map->CarmineStore {:conn carmine-conn
+                                :read-handlers read-handlers
+                                :write-handlers write-handlers
+                                :serializer serializer
+                                :locks (atom {})}))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
+      res-ch)))
 
-(comment
-  (def store (<!! (new-carmine-store)))
-
-
-  (let [numbers (doall (range 1024))]
-    (time
-     (doseq [i (range 1000)]
-       (<!! (-update-in store [i] (fn [_] numbers))))))
-
-  (<!! (-get-in store [100]))
-
-  (drop 2 (byte-array [1 2 3]))
-
-
-  (<!! (-exists? store "bars"))
-
-  (<!! (-update-in store ["bars"] (fn [_] 1)))
-
-  (<!! (-update-in store ["bars"] inc))
-
-  (<!! (-get-in store ["bars"]))
-
-
-  (<!! (-bassoc store "bbar" (byte-array (range 5))))
-
-  (<!! (-bget store "bbar" (fn [{:keys [input-stream]}]
-                             (map byte (slurp input-stream)))))
-
-                                        ; See `wcar` docstring for opts
-  (def conn {:pool {} :spec {}})
-  (defmacro wcar* [& body] `(car/wcar server1-conn ~@body))
-
-  (map byte (car/wcar conn (car/parse-raw (car/get "foo"))))
-  (98 97 114)
-
-  (car/wcar conn (car/parse-raw (car/set "foo" (byte-array [1 2 3]))))
-
-  (wcar* (car/ping))
-
-  (wcar*
-   (car/ping)
-   (car/set "foo" "bar")
-   (car/get "foo")) 
-
-  (wcar* (car/set "clj-key" {:bigint (bigint 31415926535897932384626433832795)
-                             :vec    (vec (range 5))
-                             :set    #{true false :a :b :c :d}
-                             :bytes  (byte-array 5)
-                             ;; ...
-                             })
-         (car/get "clj-key"))
-
-
-  (wcar*
-   (car/swap "clj-key" (fn [old nx?]
-                         (let [new (assoc old :foo :bar)]
-                           (println old)
-                           [new [old new]]))))
-
-
-  (wcar*
-   (car/exists "foo"))
-
-
-  )
-
-
-
+(defn delete-store [store]
+  (let [res-ch (async/chan 1)]
+    (async/thread
+      (try
+        (car/wcar (:conn store) (car/flushall))
+        (async/close! res-ch)
+        (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          
+    res-ch))
